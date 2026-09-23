@@ -97,6 +97,16 @@ select.sel{background:var(--surface);border:1px solid var(--line-2);border-radiu
 .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--ink-2)}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.accs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0}
+.acc{padding:16px 18px;display:flex;flex-direction:column;gap:6px;min-width:0;border-left:1px solid var(--line)}
+.acc:first-child{border-left:0}
+.acc .k{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-3);display:flex;align-items:center;justify-content:space-between;gap:8px}
+.acc .v{font-family:var(--f-display);font-weight:800;font-size:clamp(20px,2vw,26px);letter-spacing:-.02em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acc .s{font-size:12px;color:var(--ink-2);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.acc.total{background:linear-gradient(160deg,rgba(255,92,92,.10),transparent 70%)}
+.acc .upd{border:1px solid var(--line-2);background:var(--surface-2);border-radius:8px;padding:3px 9px;font-size:11.5px;font-weight:600;cursor:pointer;letter-spacing:0;text-transform:none;color:var(--ink)}
+.acc .upd:hover{border-color:var(--accent)}
+@media (max-width:760px){.accs{grid-template-columns:1fr}.acc{border-left:0;border-top:1px solid var(--line)}.acc:first-child{border-top:0}}
 .strip{display:flex;flex-wrap:wrap;gap:8px 26px;padding:12px 18px;font-size:13px;color:var(--ink-2)}
 .strip b{color:var(--ink);font-variant-numeric:tabular-nums;font-weight:700}
 
@@ -250,7 +260,7 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
 
   /* ================= State ================= */
   const S = { fix:[], inc:[], exp:[], view:"overview", month:thisMonth, yA:thisYear-1, yB:thisYear, metric:"res", writable:true,
-              eb:{paid:{}, open:[], rec:{}, invoiced:{}, dupes:0, dupeAmt:0, fetchedAt:null}, ebSig:null };
+              eb:{paid:{}, open:[], rec:{}, invoiced:{}, dupes:0, dupeAmt:0, fetchedAt:null}, ebSig:null, acc:{} };
   try { const v = localStorage.getItem("clf.view"); if (v) S.view = v; } catch(e){}
 
   /* ================= Store: shared db, local fallback ================= */
@@ -282,6 +292,7 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
     st.sub(COLL.fix, d => { S.fix = d; render(); });
     st.sub(COLL.inc, d => { S.inc = d; render(); });
     st.sub(COLL.exp, d => { S.exp = d; render(); });
+    st.sub("accounts", d => { S.acc = Object.fromEntries(d.map(x => [x.id, x])); render(); });
     st.sub("easybill", d => {
       const snap = d.find(x => x.id === "snapshot"); if (!snap) return;
       if (S.eb.fetchedAt && snap.fetchedAt <= S.eb.fetchedAt) return;
@@ -523,6 +534,7 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
         <div class="card kpi"><div class="k">Ergebnis</div><div class="v ${cur.res >= 0 ? "pos" : "neg"}">${eur.format(cur.res)}</div><div class="s"><span>Marge ${cur.inc ? Math.round(cur.res / cur.inc * 100) + " %" : "—"}</span></div></div>
         <div class="card kpi"><div class="k">Offene Rechnungen</div><div class="v">${eur.format(openSum)}</div><div class="s">${od.length ? `<span class="pill bad">✕ ${od.length} überfällig</span>` : S.eb.fetchedAt ? `<span class="pill good">✓ nichts überfällig</span>` : `<span>noch kein Easybill-Abgleich</span>`}</div></div>
       </section>
+      ${accountsPanel(sumM(ytd,"res"), y)}
       <section class="card panel">
         <div class="strip"><span>Seit Jahresbeginn ${y}:</span><span>Einnahmen <b>${eur.format(sumM(ytd,"inc"))}</b></span><span>Ausgaben <b>${eur.format(sumM(ytd,"out"))}</b></span><span>Ergebnis <b class="${sumM(ytd,"res") >= 0 ? "pos" : "neg"}">${eur.format(sumM(ytd,"res"))}</b></span></div>
       </section>
@@ -541,7 +553,7 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
        tip:i => { const m = months[i]; return `<div class="t">${mLabel(m.ym)}</div>${tipRow("var(--s-in)","Einnahmen",m.inc)}${tipRow("var(--s-out)","Ausgaben",m.out)}<div style="border-top:1px solid var(--line);margin-top:5px;padding-top:5px">${tipRow(null,"Ergebnis",m.res,m.res >= 0 ? "pos" : "neg")}</div>`; }});
     wireGo();
   }
-  function wireGo(){ document.querySelectorAll("[data-go]").forEach(b => b.onclick = () => go(b.dataset.go)); document.querySelectorAll("[data-add]").forEach(b => b.onclick = () => openForm(b.dataset.add)); document.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => openForm(b.dataset.kind, b.dataset.edit)); }
+  function wireGo(){ document.querySelectorAll("[data-acc]").forEach(b => b.onclick = () => openAccForm(b.dataset.acc)); document.querySelectorAll("[data-go]").forEach(b => b.onclick = () => go(b.dataset.go)); document.querySelectorAll("[data-add]").forEach(b => b.onclick = () => openForm(b.dataset.add)); document.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => openForm(b.dataset.kind, b.dataset.edit)); }
 
   function incomeRows(ym){
     const eb = (S.eb.paid[ym] || []).map(x => ({name:x.cust, meta:`Rechnung ${x.no}${x.item ? " · " + x.item : ""}`, date:x.at, amt:x.net, src:"eb"}));
@@ -663,11 +675,49 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
 
   function go(v){ S.view = v; try { localStorage.setItem("clf.view", v); } catch(e){} render(); window.scrollTo(0,0); }
 
+  /* ================= Bank accounts ================= */
+  const ACCOUNTS = {main:"Hauptkonto", tax:"Steuerrücklage"};
+  function accountsPanel(ytdRes, y){
+    const today = new Date().toISOString().slice(0,10);
+    const block = id => {
+      const a = S.acc[id];
+      const btn = S.writable ? `<button class="upd" data-acc="${id}">${a ? "Aktualisieren" : "Eintragen"}</button>` : "";
+      if (!a) return `<div class="acc"><div class="k">${ACCOUNTS[id]}${btn}</div><div class="v" style="color:var(--ink-3)">—</div><div class="s">Noch kein Kontostand eingetragen</div></div>`;
+      const h = a.history || [], prev = h.length > 1 ? h[h.length - 2] : null;
+      const age = Math.round((new Date(today) - new Date(a.date)) / 864e5);
+      const diff = prev ? a.amount - prev.amount : null;
+      let extra = "";
+      if (id === "tax" && ytdRes > 0) extra = `<span>= ${Math.round(a.amount / ytdRes * 100)} % vom Ergebnis ${y}</span>`;
+      return `<div class="acc"><div class="k">${ACCOUNTS[id]}${btn}</div><div class="v ${a.amount < 0 ? "neg" : ""}">${eur2.format(a.amount)}</div>
+        <div class="s">${age > 14 ? `<span class="pill warn">! Stand ${fdate(a.date)}</span>` : `<span>Stand ${fdate(a.date)}</span>`}
+        ${diff !== null && Math.abs(diff) >= 0.01 ? `<span class="pill ${diff > 0 ? "good" : "bad"}">${diff > 0 ? "▲ +" : "▼ "}${eur.format(diff)}</span><span>seit ${fdate(prev.date)}</span>` : ""}${extra}</div></div>`;
+    };
+    const m = S.acc.main, t = S.acc.tax;
+    const total = (m?.amount || 0) + (t?.amount || 0);
+    return `<section class="card panel"><div class="accs">${block("main")}${block("tax")}
+      <div class="acc total"><div class="k">Liquidität gesamt</div><div class="v ${total < 0 ? "neg" : ""}">${m || t ? eur2.format(total) : "—"}</div>
+      <div class="s">${m && t ? `<span>davon frei verfügbar ${eur.format(m.amount)}</span>` : `<span>Hauptkonto + Steuerrücklage</span>`}</div></div></div></section>`;
+  }
+  function openAccForm(id){
+    const a = S.acc[id];
+    formCtx = {kind:"acc", id};
+    $("#dErr").textContent = ""; $("#dDelete").hidden = true;
+    $("#dTitle").textContent = `${ACCOUNTS[id]} aktualisieren`;
+    const today = new Date().toISOString().slice(0,10);
+    $("#form").innerHTML = `
+      <div class="fld"><label for="f_amount">Aktueller Kontostand (€)</label><input id="f_amount" type="number" step="0.01" inputmode="decimal" value="${a ? a.amount : ""}" placeholder="z. B. 12500,00"><span class="hint">So wie er gerade im Online-Banking steht${id === "main" ? " – auch negativ möglich" : ""}.</span></div>
+      <div class="fld"><label for="f_date">Stand vom</label><input id="f_date" type="date" value="${today}"></div>
+      ${a?.history?.length ? `<div class="fld"><label>Letzte Einträge</label><div class="list">${[...a.history].reverse().slice(0, 6).map(h => `<div class="li" style="padding:7px 0"><span class="n" style="font-weight:500">${fdate(h.date)}</span><span class="a">${eur2.format(h.amount)}</span></div>`).join("")}</div></div>` : ""}`;
+    $("#drawer").classList.add("on"); $("#scrim").classList.add("on"); $("#drawer").setAttribute("aria-hidden","false");
+    setTimeout(() => $("#f_amount")?.select(), 60);
+  }
+
   /* ================= Forms ================= */
   let formCtx = null;
   const opt = (arr, v) => arr.map(a => `<option ${a === v ? "selected" : ""}>${esc(a)}</option>`).join("");
   function openForm(kind, id){
     if (!S.writable) return;
+    if (kind === "acc") return openAccForm(id);
     const src = {fix:S.fix, inc:S.inc, exp:S.exp}[kind];
     const item = id ? src.find(x => x.id === id) : null;
     formCtx = {kind, id: item ? id : null};
@@ -714,6 +764,18 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
   async function save(){
     if (!formCtx) return;
     const {kind, id} = formCtx; const v = s => $(s)?.value?.trim();
+    if (kind === "acc"){
+      const raw = v("#f_amount"); const amount = Number(String(raw||"").replace(",", "."));
+      if (raw === "" || !Number.isFinite(amount)) return $("#dErr").textContent = "Kontostand eingeben.";
+      if (id === "tax" && amount < 0) return $("#dErr").textContent = "Die Rücklage kann nicht negativ sein.";
+      const date = v("#f_date"); if (!date) return $("#dErr").textContent = "Datum fehlt.";
+      const prev = S.acc[id] || {};
+      const history = [...(prev.history || []), {amount, date}].sort((a,b) => a.date.localeCompare(b.date)).slice(-60);
+      const latest = history[history.length - 1];
+      const data = {name: ACCOUNTS[id], amount: latest.amount, date: latest.date, history, updatedAt: new Date().toISOString()};
+      if (await write(() => store.set("accounts", id, data), "Kontostand gespeichert")) closeForm();
+      return;
+    }
     const name = v("#f_name"), amount = Number(String(v("#f_amount")||"").replace(",", "."));
     if (!name) return $("#dErr").textContent = "Bezeichnung fehlt.";
     if (!(amount > 0)) return $("#dErr").textContent = "Betrag muss größer 0 sein.";
