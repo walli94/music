@@ -74,6 +74,29 @@ button,input,select{font:inherit;color:inherit}
 .sync i{width:7px;height:7px;border-radius:50%;background:var(--ink-3)}
 .sync.live i{background:var(--good);box-shadow:0 0 0 3px var(--good-soft)}
 .sync.local i{background:var(--warn)}
+.sync.err i{background:var(--bad)}
+.eb{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);padding:4px 4px 4px 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface);max-width:100%}
+.eb i{width:7px;height:7px;border-radius:50%;background:var(--ink-3);flex:none}
+.eb.ok i{background:var(--good);box-shadow:0 0 0 3px var(--good-soft)}
+.eb.busy i{background:var(--accent);animation:pulse 1s infinite}
+.eb.warn i{background:var(--warn)}
+.eb.err i{background:var(--bad)}
+.eb .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.eb button{border:0;background:var(--surface-2);border-radius:999px;padding:4px 10px;font-size:11.5px;font-weight:600;cursor:pointer;color:var(--ink)}
+.eb button:hover{background:var(--accent-soft)}
+.eb button:disabled{opacity:.5;cursor:default}
+@keyframes pulse{50%{opacity:.35}}
+.ebmsg{font-size:12.5px;color:var(--ink-2);padding:10px 14px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--surface);margin-bottom:14px}
+.ebmsg b{color:var(--ink)}
+.legend i.fc{background:transparent;border:1.5px dashed var(--s-rev)}
+tr.sec td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-3);font-weight:700;border-bottom:1px solid var(--line-2)}
+tr.sec td span{float:right;font-family:var(--f-mono);letter-spacing:0;text-transform:none;font-size:12px;color:var(--ink-2)}
+tr.exp td{color:var(--ink-2)}
+.tag.eb-src{border-color:color-mix(in srgb,var(--accent) 40%,var(--line));color:var(--accent-ink);background:var(--accent-soft)}
+.sumline{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12px;color:var(--ink-2);margin-bottom:10px}
+.sumline b{font-family:var(--f-mono);color:var(--ink);font-weight:600}
+.open-head{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:baseline;margin-bottom:8px}
+.open-head .big{font-family:var(--f-mono);font-size:22px;font-weight:600;letter-spacing:-.03em}
 
 /* ---------- Banner ---------- */
 .banner{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between;padding:12px 16px;border-radius:var(--r-sm);border:1px dashed var(--line-2);background:var(--surface);margin-bottom:18px;font-size:13px;color:var(--ink-2)}
@@ -229,6 +252,7 @@ tr.off td{opacity:.45}
       </div>
     </div>
     <div class="controls">
+      <span class="eb" id="eb"><i></i><span class="t">Easybill …</span><button id="ebSync" type="button">Sync</button></span>
       <span class="sync" id="sync"><i></i><span>Verbinde …</span></span>
       <div class="month-nav" role="group" aria-label="Monat wählen">
         <button id="prev" aria-label="Vorheriger Monat"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button>
@@ -243,6 +267,8 @@ tr.off td{opacity:.45}
     <button class="btn ghost danger" id="clearEx">Beispieldaten entfernen</button>
   </div>
 
+  <div class="ebmsg" id="ebMsg" hidden></div>
+
   <section class="kpis" id="kpis" aria-label="Kennzahlen"></section>
 
   <section class="grid">
@@ -250,7 +276,8 @@ tr.off td{opacity:.45}
       <div class="ph">
         <div><h2>Umsatz vs. Kosten · 12 Monate</h2><div class="sub">Kosten = Fixkosten (kalkulatorisch/Monat) + variable Ausgaben</div></div>
         <div class="legend">
-          <span><i style="background:var(--s-rev)"></i>Umsatz</span>
+          <span><i style="background:var(--s-rev)"></i>Umsatz (bezahlt)</span>
+          <span><i class="fc"></i>Prognose</span>
           <span><i style="background:var(--s-fix)"></i>Fixkosten</span>
           <span><i style="background:var(--s-var)"></i>Variabel</span>
           <span><i class="line"></i>Ergebnis</span>
@@ -283,6 +310,10 @@ tr.off td{opacity:.45}
 
     <div class="stack">
       <div class="panel">
+        <div class="ph"><div><h2>Offene Rechnungen</h2><div class="sub">aus Easybill · netto · nicht storniert</div></div><span id="openStatus"></span></div>
+        <div class="pb"><div id="openInv"></div></div>
+      </div>
+      <div class="panel">
         <div class="ph"><div><h2>Abbuchungen im Monat</h2><div class="sub" id="debitSub">—</div></div></div>
         <div class="pb"><div class="debits" id="debits"></div></div>
       </div>
@@ -295,7 +326,7 @@ tr.off td{opacity:.45}
 
   <div class="foot">
     <span id="footMode">—</span>
-    <span>Beträge netto erfassen · jährliche/quartalsweise Kosten werden auf den Monat umgelegt</span>
+    <span>Umsatz = in Easybill bezahlte Rechnungen (netto, nach Zahlungsdatum) + manuelle Einträge · Prognose = + offene Rechnungen + laufende Abo-Rechnungen</span>
   </div>
 </div>
 
@@ -336,7 +367,7 @@ tr.off td{opacity:.45}
   const mLabel = ym => { const [y,m] = ym.split("-").map(Number); return `${MONTHS[m-1]} ${y}`; };
 
   /* ================= State ================= */
-  const S = { fix:[], inc:[], exp:[], settings:{taxRate:30, target:0}, month:thisMonth, tab:"fix", writable:true };
+  const S = { fix:[], inc:[], exp:[], settings:{taxRate:30, target:0}, month:thisMonth, tab:"fix", writable:true, eb:{paid:{}, open:[], rec:{}, invoiced:{}, dupes:0, dupeAmt:0, fetchedAt:null}, ebSig:null };
   try { const t = localStorage.getItem("clf.tab"); if (t) S.tab = t; } catch(e){}
 
   /* ================= Store: db capability, local fallback ================= */
@@ -377,6 +408,13 @@ tr.off td{opacity:.45}
     st.sub(COLL.inc, d => { S.inc = d; render(); });
     st.sub(COLL.exp, d => { S.exp = d; render(); });
     st.sub("settings", d => { const m = d.find(x => x.id === "main"); if (m) S.settings = {...S.settings, ...m}; render(); });
+    st.sub("easybill", d => {
+      const snap = d.find(x => x.id === "snapshot"); if (!snap) return;
+      if (S.eb.fetchedAt && snap.fetchedAt <= S.eb.fetchedAt) return;
+      S.eb = ebModel(snap); S.ebSig = JSON.stringify([snap.invoices, snap.payments, snap.recurring]);
+      if (!ebBusy) ebStatus(mcp ? "ok" : "warn", `Easybill · Stand ${ebStamp()}`);
+      render();
+    });
   }
 
   /* ================= Calculations ================= */
@@ -388,12 +426,145 @@ tr.off td{opacity:.45}
     const first = c.start || ym; const diff = mIdx(ym) - mIdx(first);
     return diff >= 0 && diff % n === 0;
   };
+  /* ================= Easybill: actual revenue + forecast ================= */
+  // Actual revenue = payments booked on invoices, by payment date, converted to net,
+  // capped per invoice at its gross amount (+ dunning fees) so double-booked payments never count twice.
+  // Forecast = actual + open invoices (by due date, overdue lands in the current month) + running recurring invoices.
+  const EB_SERVER = "Easybill";
+  const ebCat = t => /website|webdesign|landing|funnel/i.test(t) ? "Websites & Funnels"
+    : /coaching|consulting|training|masterclass|club|mentoring/i.test(t) ? "Coaching / Career System"
+    : /instahub|crm|software|tool|abo/i.test(t) ? "Tools & Software (INSTAHUB, CRM …)"
+    : /event|gig|booking/i.test(t) ? "Events"
+    : /mix|master/i.test(t) ? "Mixing & Mastering" : "Sonstiges";
+  const FREQ_MONTHS = {MONTHLY:1, QUARTERLY:3, YEARLY:12};
+
+  function ebModel(snap){
+    const M = {paid:{}, open:[], rec:{}, invoiced:{}, dupes:0, dupeAmt:0, fetchedAt:snap?.fetchedAt || null};
+    if (!snap?.invoices) return M;
+    const inv = new Map(snap.invoices.map(i => [String(i.id), i]));
+    const fees = {}, applied = {};
+    for (const p of snap.payments || []) if (p.fee) fees[p.doc] = (fees[p.doc]||0) + Math.abs(p.amt);
+    const push = (ym, row) => { (M.paid[ym] ||= []).push(row); };
+    const pays = [...(snap.payments || [])].filter(p => !p.fee && p.at).sort((a,b) => a.at.localeCompare(b.at));
+    for (const p of pays){
+      const i = inv.get(String(p.doc)); if (!i || i.cancel) continue;
+      const sign = i.type === "CREDIT" ? -1 : 1;
+      const cap = Math.abs(i.gross) + (fees[p.doc]||0);
+      const room = cap - (applied[p.doc]||0);
+      const amt = Math.min(p.amt, room);
+      if (p.amt > room){ M.dupes++; M.dupeAmt += (p.amt - Math.max(0, room)) / 100 * (i.gross ? i.net / i.gross : 1); }
+      if (amt <= 0) continue;
+      applied[p.doc] = (applied[p.doc]||0) + amt;
+      const ratio = i.gross ? i.net / i.gross : 1;
+      push(p.at.slice(0,7), {no:i.no, cust:i.cust, item:i.item, at:p.at, net: sign * amt / 100 * ratio, gross: sign * amt / 100, cat: ebCat(i.item||"")});
+    }
+    const today = new Date().toISOString().slice(0,10);
+    const staleBefore = new Date(Date.now() - 90 * 864e5).toISOString().slice(0,10); // >90 days overdue: not in forecast
+    for (const i of snap.invoices){
+      if (i.cancel) continue;
+      const sign = i.type === "CREDIT" ? -1 : 1;
+      if (i.date) M.invoiced[i.date.slice(0,7)] = (M.invoiced[i.date.slice(0,7)]||0) + sign * i.net / 100;
+      const got = applied[i.id] || 0;
+      if (i.paidAt && !got){ // marked paid in Easybill without a payment record
+        const amt = Math.min(i.paid || i.gross, i.gross);
+        push(i.paidAt.slice(0,7), {no:i.no, cust:i.cust, item:i.item, at:i.paidAt, net: sign * amt / 100 * (i.gross ? i.net / i.gross : 1), gross: sign * amt / 100, cat: ebCat(i.item||"")});
+        continue;
+      }
+      if (i.paidAt || i.type === "CREDIT") continue;
+      const rest = i.gross - Math.min(got, i.gross);
+      if (rest <= 0) continue;
+      const ratio = i.gross ? i.net / i.gross : 1;
+      const due = i.due || i.date;
+      M.open.push({no:i.no, cust:i.cust, item:i.item, date:i.date, due, net: rest / 100 * ratio, gross: rest / 100, partial: got > 0, overdue: due < today, stale: due < staleBefore, cat: ebCat(i.item||"")});
+    }
+    M.open.sort((a,b) => (a.due||"").localeCompare(b.due||""));
+    const horizon = addM(thisMonth, 24);
+    for (const r of snap.recurring || []){
+      if (r.status !== "RUNNING" || !r.next) continue;
+      const step = (FREQ_MONTHS[r.freq] || 1) * (Number(r.interval) || 1);
+      const endDate = r.end && /^\d{4}-\d{2}-\d{2}$/.test(r.end) ? r.end : null;
+      let left = r.end && /^\d+$/.test(String(r.end)) ? Number(r.end) : Infinity;
+      let d = r.next;
+      while (left > 0 && d.slice(0,7) <= horizon && (!endDate || d <= endDate)){
+        (M.rec[d.slice(0,7)] ||= []).push({cust:r.cust, item:r.item, at:d, net:r.net / 100, gross:r.gross / 100, cat: ebCat(r.item||"")});
+        left--; d = addM(d.slice(0,7), step) + d.slice(7);
+      }
+    }
+    return M;
+  }
+  const sumNet = a => (a || []).reduce((s,x) => s + x.net, 0);
+  const openIn = ym => ym === thisMonth ? S.eb.open.filter(o => !o.stale && (o.due||"").slice(0,7) <= ym) : ym > thisMonth ? S.eb.open.filter(o => (o.due||"").slice(0,7) === ym) : [];
+
   function monthStats(ym){
     const fix = S.fix.filter(c => activeIn(c, ym)).reduce((a,c) => a + monthlyEq(c), 0);
     const cash = S.fix.filter(c => dueIn(c, ym)).reduce((a,c) => a + (Number(c.amount)||0), 0);
-    const rev = S.inc.filter(x => x.month === ym).reduce((a,x) => a + (Number(x.amount)||0), 0);
+    const manual = S.inc.filter(x => x.month === ym).reduce((a,x) => a + (Number(x.amount)||0), 0);
+    const ebPaid = sumNet(S.eb.paid[ym]);
+    const rev = manual + ebPaid;
+    const expOpen = ym >= thisMonth ? sumNet(openIn(ym)) : 0;
+    const expRec = ym >= thisMonth ? sumNet(S.eb.rec[ym]) : 0;
+    const fc = rev + expOpen + expRec;
     const vari = S.exp.filter(x => x.month === ym).reduce((a,x) => a + (Number(x.amount)||0), 0);
-    return {ym, fix, cash, rev, vari, cost: fix + vari, res: rev - fix - vari};
+    return {ym, fix, cash, rev, manual, ebPaid, expOpen, expRec, fc, vari, cost: fix + vari, res: rev - fix - vari, fcRes: fc - fix - vari};
+  }
+
+  /* ---- Easybill sync (viewer's own connector) → shared snapshot in db ---- */
+  let mcp = null, ebBusy = false;
+  function ebStatus(kind, text){ const el = $("#eb"); el.className = "eb " + kind; el.querySelector(".t").textContent = text; }
+  function ebMessage(html){ const m = $("#ebMsg"); m.hidden = !html; m.innerHTML = html || ""; }
+  const ebStamp = () => S.eb.fetchedAt ? new Date(S.eb.fetchedAt).toLocaleString("de-DE",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : null;
+  function parsePayload(res){
+    let p = res?.payload;
+    if (typeof p === "string"){
+      const m = /Status:\s*(\d+)/.exec(p);
+      if (m && Number(m[1]) >= 400) throw {code:"tool_error", message:p.slice(0,200)};
+      const i = p.indexOf("{"); p = JSON.parse(p.slice(i));
+    }
+    if (!p || !Array.isArray(p.items)) throw {code:"tool_error", message:"Unerwartete Antwort von Easybill"};
+    return p;
+  }
+  async function ebAll(tool, input){
+    const out = []; let page = 1, pages = 1;
+    do {
+      const res = await mcp.callTool(EB_SERVER, tool, {...input, limit:500, page}, {cache:false});
+      const p = parsePayload(res); out.push(...p.items); pages = p.pages || 1; page++;
+    } while (page <= pages && page <= 20);
+    return out;
+  }
+  const custOf = d => d.customer_snapshot?.display_name || d.customer_snapshot?.company_name || [d.address?.first_name, d.address?.last_name].filter(Boolean).join(" ") || d.address?.company_name || "—";
+  const itemOf = d => String(d.items?.[0]?.description || d.title || "").replace(/<[^>]+>/g, "").split(/\r?\n/)[0].trim().slice(0, 60);
+  async function ebSync(manual){
+    if (!mcp || ebBusy) return;
+    ebBusy = true; $("#ebSync").disabled = true; ebStatus("busy", "Easybill · synchronisiere …");
+    try {
+      const [invs, credits, recs, pays] = await Promise.all([
+        ebAll("GetDocuments", {type:"INVOICE", is_draft:"0"}),
+        ebAll("GetDocuments", {type:"CREDIT", is_draft:"0"}),
+        ebAll("GetDocuments", {type:"RECURRING"}),
+        ebAll("GetDocumentPayments", {})
+      ]);
+      const snap = {
+        fetchedAt: new Date().toISOString(),
+        invoices: [...invs, ...credits].map(d => ({id:d.id, type:d.type, no:d.number, cust:custOf(d), date:d.document_date, due:d.due_date, gross:d.amount, net:d.amount_net, paid:d.paid_amount, paidAt:d.paid_at, cancel:d.cancel_id, item:itemOf(d)})),
+        payments: pays.map(p => ({doc:p.document_id, at:p.payment_at, amt:p.amount, fee:!!p.is_overdue_fee, type:p.type})),
+        recurring: recs.map(d => ({id:d.id, cust:custOf(d), gross:d.amount, net:d.amount_net, freq:d.recurring_options?.frequency, interval:d.recurring_options?.interval, next:d.recurring_options?.next_date, end:d.recurring_options?.end_date_or_count, status:d.recurring_options?.status, item:itemOf(d)}))
+      };
+      const sig = JSON.stringify([snap.invoices, snap.payments, snap.recurring]);
+      S.eb = ebModel(snap); render();
+      if (sig !== S.ebSig && store){ S.ebSig = sig; try { await store.set("easybill", "snapshot", snap); } catch(e){} }
+      ebStatus("ok", `Easybill · ${ebStamp()}`); ebMessage("");
+      if (manual) toast("Easybill synchronisiert");
+    } catch(e){
+      const code = e?.code || "upstream_error";
+      const stamp = ebStamp();
+      const keep = stamp ? ` Angezeigt wird der letzte Stand vom ${stamp}.` : "";
+      if (code === "server_not_connected") { ebStatus("warn", stamp ? `Easybill · Stand ${stamp}` : "Easybill nicht verbunden"); if (!stamp) ebMessage(`<b>Easybill ist für dich nicht verbunden.</b> Füge Easybill in claude.ai unter Einstellungen → Connectors hinzu, dann lädt das Dashboard die Rechnungen automatisch.`); }
+      else if (code === "needs_reauth") { ebStatus("err", "Easybill neu verbinden"); ebMessage(`<b>Die Easybill-Verbindung ist abgelaufen.</b> Verbinde Easybill in claude.ai unter Einstellungen → Connectors neu.${keep}`); }
+      else if (code === "not_in_manifest" || code === "blocked_by_policy" || code === "approval_required") { ebStatus("warn", "Easybill-Zugriff nicht erlaubt"); ebMessage(`<b>Easybill-Zugriff für diese Seite nicht freigegeben.</b> Erlaube den Zugriff beim nächsten Sync, um echte Umsätze zu laden.${keep}`); }
+      else if (code === "selection_required") { ebStatus("warn", "Easybill-Konto wählen"); ebMessage(`<b>Mehrere Easybill-Verbindungen gefunden.</b> Wähle im Hinweis oben das richtige Konto aus.${keep}`); }
+      else if (code === "server_unavailable" || code === "rate_limited") { ebStatus("warn", stamp ? `Easybill · Stand ${stamp}` : "Easybill nicht erreichbar"); if (manual) toast("Easybill gerade nicht erreichbar"); }
+      else { ebStatus("err", stamp ? `Easybill · Stand ${stamp}` : "Easybill-Fehler"); if (manual) toast("Easybill-Sync fehlgeschlagen: " + (e?.message || code).slice(0, 80)); }
+    } finally { ebBusy = false; $("#ebSync").disabled = !mcp; }
   }
 
   /* ================= Render ================= */
@@ -414,6 +585,7 @@ tr.off td{opacity:.45}
     renderTable();
     renderDebits(ym);
     renderCats(ym);
+    renderOpen();
   }
 
   function delta(a, b, invert){
@@ -427,7 +599,9 @@ tr.off td{opacity:.45}
     const margin = cur.rev ? cur.res / cur.rev * 100 : 0;
     const k = [
       {cls:"hero", k:"Ergebnis", sw:null, v:eur.format(cur.res), s:`${delta(cur.res, prev.res)} <span>Marge ${cur.rev ? margin.toLocaleString("de-DE",{maximumFractionDigits:0}) + " %" : "—"}</span>`},
-      {k:"Umsatz", sw:"var(--s-rev)", v:eur.format(cur.rev), s:`${delta(cur.rev, prev.rev)} <span>Ø 3M ${eur.format(avgRev)}</span>`},
+      {k:"Umsatz · bezahlt", sw:"var(--s-rev)", v:eur.format(cur.rev), s: cur.ym >= thisMonth && cur.fc > cur.rev + 0.5
+        ? `<span class="pill neutral" title="bezahlt + offene Rechnungen + laufende Abos">Prognose ${eur.format(cur.fc)}</span> <span>${delta(cur.rev, prev.rev)}</span>`
+        : `${delta(cur.rev, prev.rev)} <span>Ø 3M ${eur.format(avgRev)}</span>`},
       {k:"Fixkosten / Monat", sw:"var(--s-fix)", v:eur.format(cur.fix), s:`<span>${S.fix.filter(c => activeIn(c, cur.ym)).length} Posten · ${eur.format(cur.fix*12)} p.a.</span>`},
       {k:"Variable Ausgaben", sw:"var(--s-var)", v:eur.format(cur.vari), s:`${delta(cur.vari, prev.vari, true)} <span>${S.exp.filter(x => x.month === cur.ym).length} Buchungen</span>`},
       {k:"Steuer-Rücklage", sw:null, v:eur.format(tax), s:`<span>${S.settings.taxRate} % vom Gewinn · frei: <b class="num">${eur.format(Math.max(0,cur.res) - tax)}</b></span>`}
@@ -451,6 +625,7 @@ tr.off td{opacity:.45}
     ].map(([l,v]) => `<div class="row"><span class="l">${l}</span><span class="r">${eur.format(v)}</span></div>`).join("")
     + `<div class="row total"><span class="l">Ergebnis vor Steuern</span><span class="r" style="color:${cur.res >= 0 ? "var(--good)" : "var(--bad)"}">${eur.format(cur.res)}</span></div>`
     + `<div class="row"><span class="l">Rücklage ${S.settings.taxRate} % <button class="ibtn" id="editTax" aria-label="Steuersatz ändern" style="display:inline-grid;width:24px;height:24px;vertical-align:middle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg></button></span><span class="r">${eur.format(-tax)}</span></div>`
+    + (cur.ym >= thisMonth && cur.fc > cur.rev + 0.5 ? `<div class="row"><span class="l">Ergebnis-Prognose <span style="color:var(--ink-3)">(Umsatz + ${eur.format(cur.expOpen)} offen + ${eur.format(cur.expRec)} Abos)</span></span><span class="r">${eur.format(cur.fcRes)}</span></div>` : "")
     + `<div class="row"><span class="l">Tatsächlich abgebucht (Cash)</span><span class="r">${eur.format(-cur.cash)}</span></div>`
     + `<div class="row"><span class="l">${gap >= 0 ? "Puffer über Break-even" : "Fehlt bis Break-even"}</span><span class="r" style="color:${gap >= 0 ? "var(--good)" : "var(--bad)"}">${eur.format(gap)}</span></div>`;
     $("#editTax").onclick = () => openForm("settings");
@@ -461,7 +636,7 @@ tr.off td{opacity:.45}
     const el = $("#chart"); const tip = $("#tip");
     const months = Array.from({length:12}, (_,i) => monthStats(addM(S.month, i - 11)));
     const W = 760, H = 330, L = 48, R = 8, T = 12, B = 26;
-    const maxV = Math.max(1, ...months.map(m => Math.max(m.rev, m.cost)));
+    const maxV = Math.max(1, ...months.map(m => Math.max(m.fc, m.cost)));
     const minV = Math.min(0, ...months.map(m => m.res));
     const step = niceStep((maxV - minV) / 4);
     const top = Math.ceil(maxV / step) * step, bot = Math.floor(minV / step) * step;
@@ -482,6 +657,7 @@ tr.off td{opacity:.45}
     months.forEach((m, i) => {
       const cx = L + cw * i + cw / 2;
       const xr = cx - bw - gap/2, xc = cx + gap/2;
+      if (m.fc > m.rev + 0.5){ const y1 = y(m.fc), y2 = m.rev > 0.5 ? y(m.rev) - gap : y(0); if (y2 - y1 > 1) g += `<rect x="${xr + .75}" y="${y1 + .75}" width="${bw - 1.5}" height="${y2 - y1 - 1.5}" rx="3" fill="var(--accent-soft)" stroke="var(--s-rev)" stroke-width="1.5" stroke-dasharray="3 2"/>`; }
       g += bar(xr, y(m.rev), y(0), "var(--s-rev)", true);
       const yFixTop = y(m.fix);
       g += bar(xc, yFixTop, y(0), "var(--s-fix)", m.vari < 1);
@@ -512,7 +688,8 @@ tr.off td{opacity:.45}
     });
     function showTip(h, m){
       tip.innerHTML = `<div class="t">${mLabel(m.ym)}</div>
-        <div class="r"><span><i style="background:var(--s-rev)"></i>Umsatz</span><b>${eur.format(m.rev)}</b></div>
+        <div class="r"><span><i style="background:var(--s-rev)"></i>Umsatz bezahlt</span><b>${eur.format(m.rev)}</b></div>
+        ${m.fc > m.rev + 0.5 ? `<div class="r"><span><i style="border:1.5px dashed var(--s-rev)"></i>Prognose</span><b>${eur.format(m.fc)}</b></div>` : ""}
         <div class="r"><span><i style="background:var(--s-fix)"></i>Fixkosten</span><b>${eur.format(m.fix)}</b></div>
         <div class="r"><span><i style="background:var(--s-var)"></i>Variabel</span><b>${eur.format(m.vari)}</b></div>
         <div class="r" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--line)"><span>Ergebnis</span><b style="color:${m.res >= 0 ? "var(--good)" : "var(--bad)"}">${eur.format(m.res)}</b></div>`;
@@ -536,7 +713,7 @@ tr.off td{opacity:.45}
     document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === S.tab));
     const ym = S.month;
     $("#cntFix").textContent = S.fix.length;
-    $("#cntInc").textContent = S.inc.filter(x => x.month === ym).length;
+    $("#cntInc").textContent = S.inc.filter(x => x.month === ym).length + (S.eb.paid[ym]?.length || 0);
     $("#cntExp").textContent = S.exp.filter(x => x.month === ym).length;
     $("#addLabel").textContent = {fix:"Fixkosten hinzufügen", inc:"Umsatz erfassen", exp:"Ausgabe erfassen"}[S.tab];
     $("#addBtn").hidden = !S.writable;
@@ -553,6 +730,23 @@ tr.off td{opacity:.45}
           <td class="amt">${eur2.format(Number(c.amount)||0)}</td><td class="amt">${eur2.format(monthlyEq(c))}</td>
           <td>${S.writable ? `<div class="act"><button class="ibtn" data-toggle="${c.id}" aria-label="${c.active === false ? "Aktivieren" : "Pausieren"}" title="${c.active === false ? "Aktivieren" : "Pausieren"}">${c.active === false ? ICON.play : ICON.pause}</button><button class="ibtn" data-edit="${c.id}" aria-label="Bearbeiten">${ICON.edit}</button></div>` : ""}</td></tr>`;
       }).join("")}</tbody></table>`;
+    } else if (S.tab === "inc"){
+      const paid = [...(S.eb.paid[ym] || [])].sort((a,b) => b.at.localeCompare(a.at));
+      const open = ym >= thisMonth ? openIn(ym) : [];
+      const rec = ym >= thisMonth ? (S.eb.rec[ym] || []) : [];
+      const manual = S.inc.filter(x => x.month === ym).sort((a,b) => (b.date||"").localeCompare(a.date||""));
+      const st = monthStats(ym), invd = S.eb.invoiced[ym] || 0;
+      const d = x => x ? new Date(x).toLocaleDateString("de-DE") : "—";
+      const sec = (t, v) => `<tr class="sec"><td colspan="5">${t}<span>${eur2.format(v)}</span></td></tr>`;
+      const src = `<span class="tag eb-src">Easybill</span>`;
+      let rows = "";
+      if (paid.length) rows += sec("Bezahlt · zählt als Umsatz", sumNet(paid)) + paid.map(x => `<tr><td><b>${esc(x.cust)}</b><div class="meta">Rechnung ${esc(x.no)} · ${esc(x.item)}</div></td><td>${src}</td><td class="mono" style="font-size:12px;color:var(--ink-2)">${d(x.at)}</td><td class="amt">${eur2.format(x.net)}</td><td></td></tr>`).join("");
+      if (manual.length) rows += sec("Manuell erfasst · zählt als Umsatz", manual.reduce((a,x) => a + (Number(x.amount)||0), 0)) + manual.map(x => `<tr><td><b>${esc(x.name)}</b>${x.note || x.example ? `<div class="meta">${exm(x)}${esc(x.note||"")}</div>` : ""}</td><td><span class="tag">${esc(x.category)}</span></td><td class="mono" style="font-size:12px;color:var(--ink-2)">${d(x.date)}</td><td class="amt">${eur2.format(Number(x.amount)||0)}</td><td>${S.writable ? `<div class="act"><button class="ibtn" data-edit="${x.id}" aria-label="Bearbeiten">${ICON.edit}</button></div>` : ""}</td></tr>`).join("");
+      if (open.length) rows += sec("Offen · nur Prognose", sumNet(open)) + open.map(x => `<tr class="exp"><td><b>${esc(x.cust)}</b><div class="meta">Rechnung ${esc(x.no)}${x.partial ? " · Teilzahlung erhalten" : ""} · ${esc(x.item)}</div></td><td>${x.overdue ? `<span class="pill bad">✕ überfällig</span>` : `<span class="pill neutral">fällig</span>`}</td><td class="mono" style="font-size:12px">${d(x.due)}</td><td class="amt">${eur2.format(x.net)}</td><td></td></tr>`).join("");
+      if (rec.length) rows += sec("Abo-Rechnungen geplant · nur Prognose", sumNet(rec)) + rec.map(x => `<tr class="exp"><td><b>${esc(x.cust)}</b><div class="meta">${esc(x.item)}</div></td><td><span class="pill neutral">↻ Abo</span></td><td class="mono" style="font-size:12px">${d(x.at)}</td><td class="amt">${eur2.format(x.net)}</td><td></td></tr>`).join("");
+      html = `<div class="sumline"><span>Bezahlt <b>${eur.format(st.rev)}</b></span>${ym >= thisMonth ? `<span>Prognose <b>${eur.format(st.fc)}</b></span>` : ""}<span>Fakturiert (Rechnungsdatum) <b>${eur.format(invd)}</b></span></div>`
+        + (rows ? `<table><thead><tr><th>Kunde / Projekt</th><th>Quelle</th><th>Datum</th><th class="amt">Netto</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+                : `<div class="empty">Keine Zahlungseingänge im ${mLabel(ym)}.${S.eb.fetchedAt ? "" : " Easybill ist noch nicht synchronisiert."}</div>`);
     } else {
       const list = (S.tab === "inc" ? S.inc : S.exp).filter(x => x.month === ym).sort((a,b) => (b.date||"").localeCompare(a.date||"") || b.amount - a.amount);
       const label = S.tab === "inc" ? "Umsätze" : "Ausgaben";
@@ -587,13 +781,27 @@ tr.off td{opacity:.45}
 
   function renderCats(ym){
     let groups = {}, cls = "", title, sub;
-    if (S.tab === "inc"){ S.inc.filter(x => x.month === ym).forEach(x => groups[x.category] = (groups[x.category]||0) + (Number(x.amount)||0)); cls = "rev"; title = "Umsatz nach Bereich"; sub = mLabel(ym); }
+    if (S.tab === "inc"){ S.inc.filter(x => x.month === ym).forEach(x => groups[x.category] = (groups[x.category]||0) + (Number(x.amount)||0)); (S.eb.paid[ym]||[]).forEach(x => groups[x.cat] = (groups[x.cat]||0) + x.net); cls = "rev"; title = "Umsatz nach Bereich"; sub = mLabel(ym); }
     else if (S.tab === "exp"){ S.exp.filter(x => x.month === ym).forEach(x => groups[x.category] = (groups[x.category]||0) + (Number(x.amount)||0)); cls = "var"; title = "Ausgaben nach Kategorie"; sub = mLabel(ym); }
     else { S.fix.filter(c => activeIn(c, ym)).forEach(c => groups[c.category] = (groups[c.category]||0) + monthlyEq(c)); title = "Fixkosten nach Kategorie"; sub = "pro Monat, kalkulatorisch"; }
     $("#catTitle").textContent = title; $("#catSub").textContent = sub;
     const arr = Object.entries(groups).sort((a,b) => b[1] - a[1]); const sum = arr.reduce((a,x) => a + x[1], 0); const max = arr[0]?.[1] || 1;
     $("#cats").innerHTML = arr.length ? arr.map(([n,v]) => `<div class="cat ${cls}"><span class="n">${esc(n)}</span><span class="a">${eur.format(v)} <span style="color:var(--ink-3);font-weight:400">· ${(v/sum*100).toFixed(0)} %</span></span><div class="track"><b style="width:${v/max*100}%"></b></div></div>`).join("")
       : `<div class="empty">Noch keine Daten.</div>`;
+  }
+
+  function renderOpen(){
+    const o = S.eb.open, el = $("#openInv");
+    if (!S.eb.fetchedAt){ el.innerHTML = `<div class="empty">Noch keine Easybill-Daten – klick oben auf „Sync“.</div>`; $("#openStatus").innerHTML = ""; return; }
+    const tot = sumNet(o), od = o.filter(x => x.overdue), odSum = sumNet(od);
+    $("#openStatus").innerHTML = od.length ? `<span class="pill bad">✕ ${od.length} überfällig</span>` : o.length ? `<span class="pill good">✓ nichts überfällig</span>` : `<span class="pill good">✓ alles bezahlt</span>`;
+    const d = x => x ? new Date(x).toLocaleDateString("de-DE",{day:"2-digit",month:"short"}) : "—";
+    el.innerHTML = `<div class="open-head"><span class="big">${eur.format(tot)}</span><span style="font-size:12px;color:var(--ink-2)">${o.length} Rechnungen offen${od.length ? ` · davon <b style="color:var(--bad)">${eur.format(odSum)}</b> überfällig` : ""}</span></div>`
+      + (S.eb.dupes ? `<div style="font-size:11.5px;color:var(--warn);margin-bottom:8px">! ${S.eb.dupes} doppelt verbuchte Zahlungen in Easybill erkannt (${eur.format(S.eb.dupeAmt)} netto) – nicht als Umsatz gezählt.</div>` : "")
+      + (o.length ? `<div class="debits">${o.map(x => `<div class="debit ${x.overdue ? "" : "past"}" style="opacity:1">
+          <div class="d" style="${x.overdue ? "border-color:var(--bad);color:var(--bad)" : ""}"><b style="${x.overdue ? "color:var(--bad)" : ""}">${d(x.due).split(".")[0]}</b>${d(x.due).split(" ").slice(1).join(" ") || ""}</div>
+          <div style="min-width:0"><div class="nm" style="color:var(--ink)">${esc(x.cust)}</div><div class="mt">Nr. ${esc(x.no)} · ${x.overdue ? "überfällig" : "fällig"} ${new Date(x.due).toLocaleDateString("de-DE")}${x.partial ? " · Teilzahlung" : ""}${x.stale ? " · &gt;90 Tage, nicht in Prognose" : ""}</div></div>
+          <div class="am">${eur2.format(x.net)}</div></div>`).join("")}</div>` : "");
   }
 
   /* ================= Forms ================= */
@@ -717,6 +925,10 @@ tr.off td{opacity:.45}
     let db = null;
     try { db = window.claude?.use ? await window.claude.use("db") : null; } catch(e){ db = null; }
     attach(db ? dbStore(db) : localStore());
+    try { mcp = window.claude?.use ? await window.claude.use("mcp") : null; } catch(e){ mcp = null; }
+    if (!mcp){ $("#ebSync").disabled = true; ebStatus(S.eb.fetchedAt ? "warn" : "err", S.eb.fetchedAt ? `Easybill · Stand ${ebStamp()}` : "Easybill nicht verfügbar"); return; }
+    ebSync(false);
   })();
+  $("#ebSync").onclick = () => ebSync(true);
 })();
 </script>
