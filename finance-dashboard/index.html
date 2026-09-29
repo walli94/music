@@ -107,6 +107,21 @@ select.sel{background:var(--surface);border:1px solid var(--line-2);border-radiu
 .acc .upd{border:1px solid var(--line-2);background:var(--surface-2);border-radius:8px;padding:3px 9px;font-size:11.5px;font-weight:600;cursor:pointer;letter-spacing:0;text-transform:none;color:var(--ink)}
 .acc .upd:hover{border-color:var(--accent)}
 @media (max-width:760px){.accs{grid-template-columns:1fr}.acc{border-left:0;border-top:1px solid var(--line)}.acc:first-child{border-top:0}}
+.tbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px}
+.tbar .q{flex:1 1 200px;min-width:0;background:#050505;border:1px solid var(--line-2);border-radius:10px;padding:8px 12px}
+.tbar .q:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+select.sel.sm{padding:7px 10px;font-weight:500;font-size:13px;max-width:100%}
+.tbar .cnt{font-size:12px;color:var(--ink-3);margin-left:auto}
+th button.sort{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:5px;font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit}
+th button.sort:hover{color:var(--ink)}
+th button.sort:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+th[aria-sort="ascending"],th[aria-sort="descending"]{color:var(--ink)}
+th .ar{font-size:11px;opacity:.55}
+th[aria-sort="ascending"] .ar,th[aria-sort="descending"] .ar{opacity:1;color:var(--accent)}
+tr.od td:first-child{box-shadow:inset 2px 0 0 var(--bad)}
+.msel{appearance:none;-webkit-appearance:none;background:transparent;border:0;padding:6px;min-width:150px;text-align:center;text-align-last:center;font-weight:600;font-size:13.5px;cursor:pointer;border-radius:8px}
+.msel:hover{background:var(--surface-2)}
+.msel option{background:#111;color:#fff}
 .strip{display:flex;flex-wrap:wrap;gap:8px 26px;padding:12px 18px;font-size:13px;color:var(--ink-2)}
 .strip b{color:var(--ink);font-variant-numeric:tabular-nums;font-weight:700}
 
@@ -260,8 +275,8 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
 
   /* ================= State ================= */
   const S = { fix:[], inc:[], exp:[], view:"overview", month:thisMonth, yA:thisYear-1, yB:thisYear, metric:"res", writable:true,
-              eb:{paid:{}, open:[], rec:{}, invoiced:{}, dupes:0, dupeAmt:0, fetchedAt:null}, ebSig:null, acc:{} };
-  try { const v = localStorage.getItem("clf.view"); if (v) S.view = v; } catch(e){}
+              eb:{paid:{}, open:[], rec:{}, invoiced:{}, dupes:0, dupeAmt:0, fetchedAt:null}, ebSig:null, acc:{}, chartType:"bar", tbl:{}, range:{} };
+  try { const v = localStorage.getItem("clf.view"); if (v) S.view = v; S.chartType = localStorage.getItem("clf.chart") || "bar"; const t = JSON.parse(localStorage.getItem("clf.tbl") || "{}"); for (const k in t) S.tbl[k] = {...t[k], q:""}; } catch(e){}
 
   /* ================= Store: shared db, local fallback ================= */
   const COLL = {fix:"fixcosts", inc:"income", exp:"expenses"};
@@ -456,33 +471,46 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
 
 
 
-  /* ================= Chart: grouped bars ================= */
+  /* ================= Chart: bars or lines ================= */
   function barChart(el, cats, series, {selected, onPick, tip} = {}){
-    const W = 760, H = 300, L = 48, R = 8, T = 12, B = 28, n = cats.length;
+    const line = S.chartType === "line";
+    const W = 760, H = 300, L = 48, R = 12, T = 14, B = 28, n = cats.length;
     const vals = series.flatMap(s => s.values);
     const maxV = Math.max(1, ...vals), minV = Math.min(0, ...vals);
     const step = niceStep((maxV - minV) / 4);
     const top = Math.ceil(maxV / step) * step, bot = Math.floor(minV / step) * step;
     const y = v => T + (top - v) / (top - bot) * (H - T - B);
     const cw = (W - L - R) / n, gap = 2, bw = Math.min(18, (cw * 0.62 - gap) / series.length);
+    const cxOf = i => L + cw * i + cw / 2;
     let g = "";
     for (let v = bot; v <= top + 1e-6; v += step){
       g += `<line class="${Math.abs(v) < 1e-6 ? "zero" : "grid"}" x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}"/>`;
       g += `<text class="tick" x="${L-8}" y="${y(v)+4}" text-anchor="end">${kfmt(v)}</text>`;
     }
-    cats.forEach((c, i) => {
-      const cx = L + cw * i + cw / 2, x0 = cx - (series.length * bw + (series.length - 1) * gap) / 2;
-      series.forEach((s, k) => {
-        const v = s.values[i]; if (Math.abs(v) < 0.5) return;
-        const x = x0 + k * (bw + gap), y1 = Math.min(y(v), y(0)), y2 = Math.max(y(v), y(0)), h = y2 - y1, r = Math.min(4, h, bw/2);
-        g += v >= 0
-          ? `<path d="M${x},${y2} V${y1+r} Q${x},${y1} ${x+r},${y1} H${x+bw-r} Q${x+bw},${y1} ${x+bw},${y1+r} V${y2} Z" fill="${s.color}"/>`
-          : `<path d="M${x},${y1} V${y2-r} Q${x},${y2} ${x+r},${y2} H${x+bw-r} Q${x+bw},${y2} ${x+bw},${y2-r} V${y1} Z" fill="${s.color}"/>`;
+    if (selected != null) g += `<rect x="${L + cw*selected + 1}" y="${T}" width="${cw-2}" height="${H-T-B}" rx="6" fill="rgba(255,255,255,.04)"/>`;
+    if (line){
+      series.forEach(s => {
+        const pts = s.values.map((v, i) => [cxOf(i), y(v)]);
+        const d = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
+        if (series.length === 1) g += `<path d="${d} L${pts[pts.length-1][0]},${y(0)} L${pts[0][0]},${y(0)} Z" fill="${s.color}" opacity=".12"/>`;
+        g += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round"/>`;
+        pts.forEach((p, i) => { g += `<circle cx="${p[0]}" cy="${p[1]}" r="${selected === i ? 5 : 3.5}" fill="${s.color}" stroke="var(--surface)" stroke-width="2"/>`; });
       });
-      g += `<text class="tick ${selected === i ? "sel" : ""}" x="${cx}" y="${H-9}" text-anchor="middle">${c}</text>`;
-    });
-    cats.forEach((c, i) => { g += `<rect class="hit ${selected === i ? "sel" : ""}" data-i="${i}" x="${L + cw*i + 1}" y="${T}" width="${cw-2}" height="${H-T-B}" rx="6"/>`; });
-    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(series.map(s => s.name).join(" und "))} je Monat">${g}</svg><div class="tip"></div>`;
+    } else {
+      cats.forEach((c, i) => {
+        const x0 = cxOf(i) - (series.length * bw + (series.length - 1) * gap) / 2;
+        series.forEach((s, k) => {
+          const v = s.values[i]; if (Math.abs(v) < 0.5) return;
+          const x = x0 + k * (bw + gap), y1 = Math.min(y(v), y(0)), y2 = Math.max(y(v), y(0)), h = y2 - y1, r = Math.min(4, h, bw/2);
+          g += v >= 0
+            ? `<path d="M${x},${y2} V${y1+r} Q${x},${y1} ${x+r},${y1} H${x+bw-r} Q${x+bw},${y1} ${x+bw},${y1+r} V${y2} Z" fill="${s.color}"/>`
+            : `<path d="M${x},${y1} V${y2-r} Q${x},${y2} ${x+r},${y2} H${x+bw-r} Q${x+bw},${y2} ${x+bw},${y2-r} V${y1} Z" fill="${s.color}"/>`;
+        });
+      });
+    }
+    cats.forEach((c, i) => { g += `<text class="tick ${selected === i ? "sel" : ""}" x="${cxOf(i)}" y="${H-9}" text-anchor="middle">${c}</text>`; });
+    cats.forEach((c, i) => { g += `<rect class="hit" data-i="${i}" x="${L + cw*i + 1}" y="${T}" width="${cw-2}" height="${H-T-B}" rx="6"/>`; });
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(series.map(s => s.name).join(" und "))} je Monat, ${line ? "Liniendiagramm" : "Balkendiagramm"}">${g}</svg><div class="tip"></div>`;
     el.scrollLeft = el.scrollWidth;
     const tipEl = el.querySelector(".tip");
     el.querySelectorAll(".hit").forEach(h => {
@@ -493,6 +521,62 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
       if (onPick) h.addEventListener("click", () => onPick(i));
     });
   }
+  const chartToggle = () => `<div class="seg" role="group" aria-label="Diagrammtyp"><button data-ctype="bar" aria-pressed="${S.chartType !== "line"}">Balken</button><button data-ctype="line" aria-pressed="${S.chartType === "line"}">Linie</button></div>`;
+  function wireChartToggle(){ document.querySelectorAll("[data-ctype]").forEach(b => b.onclick = () => { S.chartType = b.dataset.ctype; try { localStorage.setItem("clf.chart", S.chartType); } catch(e){} render(); }); }
+
+  /* ================= Sortable, filterable tables ================= */
+  // cfg: {cols:[{k,label,type:"text"|"date"|"num",r,val(row),html(row)}], rows, defSort, filter:{label,get(row)}, sumKey, actions(row)}
+  const TB = {};
+  function tableBlock(key, cfg){
+    TB[key] = cfg;
+    const st = S.tbl[key] ||= {sort:cfg.defSort, dir:"desc", q:"", f:""};
+    const opts = cfg.filter ? [...new Set(cfg.rows.map(cfg.filter.get).filter(Boolean))].sort((a,b) => a.localeCompare(b, "de")) : [];
+    if (st.f && !opts.includes(st.f)) st.f = "";
+    return `<div class="tb">
+      <div class="tbar">
+        <input type="search" class="q" id="q-${key}" placeholder="Suchen …" value="${esc(st.q)}" aria-label="Suchen">
+        ${cfg.filter ? `<select class="sel sm" id="f-${key}" aria-label="${esc(cfg.filter.label)}"><option value="">${esc(cfg.filter.label)}: alle</option>${opts.map(o => `<option ${o === st.f ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>` : ""}
+        <span class="cnt" id="c-${key}"></span>
+      </div>
+      <div class="tbl" id="b-${key}"></div></div>`;
+  }
+  function drawTable(key){
+    const cfg = TB[key], st = S.tbl[key], box = document.getElementById("b-" + key); if (!box) return;
+    const q = st.q.trim().toLowerCase();
+    let rows = cfg.rows.filter(r => (!st.f || cfg.filter.get(r) === st.f) && (!q || cfg.cols.some(c => String(c.val(r) ?? "").toLowerCase().includes(q))));
+    const col = cfg.cols.find(c => c.k === st.sort) || cfg.cols[0];
+    const dir = st.dir === "asc" ? 1 : -1;
+    rows.sort((a, b) => { const x = col.val(a), z = col.val(b);
+      if (col.type === "num") return ((Number(x)||0) - (Number(z)||0)) * dir;
+      return String(x ?? "").localeCompare(String(z ?? ""), "de") * dir; });
+    const sum = cfg.sumKey ? rows.reduce((s, r) => s + (Number(r[cfg.sumKey])||0), 0) : null;
+    $("#c-" + key).textContent = rows.length === cfg.rows.length ? `${rows.length} Einträge` : `${rows.length} von ${cfg.rows.length}`;
+    if (!rows.length){ box.innerHTML = `<div class="empty">${cfg.rows.length ? "Keine Treffer für diesen Filter." : cfg.empty}</div>`; return; }
+    const sumIdx = cfg.cols.findIndex(c => c.k === cfg.sumKey);
+    box.innerHTML = `<table><thead><tr>${cfg.cols.map(c => `<th class="${c.r ? "r" : ""}" aria-sort="${c.k === st.sort ? (st.dir === "asc" ? "ascending" : "descending") : "none"}"><button class="sort" data-k="${c.k}">${c.label}<span class="ar">${c.k === st.sort ? (st.dir === "asc" ? "↑" : "↓") : "↕"}</span></button></th>`).join("")}${cfg.actions ? "<th></th>" : ""}</tr></thead>
+      <tbody>${rows.map(r => `<tr class="${cfg.rowClass ? cfg.rowClass(r) : ""}">${cfg.cols.map(c => `<td class="${c.r ? "r" : ""}">${c.html ? c.html(r) : esc(c.val(r))}</td>`).join("")}${cfg.actions ? `<td>${cfg.actions(r)}</td>` : ""}</tr>`).join("")}</tbody>
+      ${sum !== null ? `<tfoot><tr>${cfg.cols.map((c, i) => i === 0 ? `<td>Summe${rows.length !== cfg.rows.length ? " (gefiltert)" : ""}</td>` : i === sumIdx ? `<td class="r">${eur2.format(sum)}</td>` : "<td></td>").join("")}${cfg.actions ? "<td></td>" : ""}</tr></tfoot>` : ""}</table>`;
+    box.querySelectorAll("button.sort").forEach(b => b.onclick = () => {
+      const k = b.dataset.k; if (st.sort === k) st.dir = st.dir === "asc" ? "desc" : "asc"; else { st.sort = k; const t = cfg.cols.find(c => c.k === k).type; st.dir = t === "text" ? "asc" : "desc"; }
+      saveTbl(); drawTable(key); });
+    box.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => openForm(b.dataset.kind, b.dataset.edit));
+  }
+  function wireTables(){
+    Object.keys(TB).forEach(key => {
+      if (!document.getElementById("b-" + key)){ delete TB[key]; return; }
+      const st = S.tbl[key];
+      const qi = document.getElementById("q-" + key); if (qi) qi.oninput = () => { st.q = qi.value; drawTable(key); };
+      const fi = document.getElementById("f-" + key); if (fi) fi.onchange = () => { st.f = fi.value; saveTbl(); drawTable(key); };
+      drawTable(key);
+    });
+  }
+  function saveTbl(){ try { localStorage.setItem("clf.tbl", JSON.stringify(Object.fromEntries(Object.entries(S.tbl).map(([k,v]) => [k, {sort:v.sort, dir:v.dir, f:v.f}])))); } catch(e){} }
+  const RANGES = {m:"Monat", y:"Jahr", all:"Alle"};
+  const inRange = (ym, range) => !ym ? false : range === "all" ? true : range === "y" ? ym.slice(0,4) === S.month.slice(0,4) : ym === S.month;
+  const rangeLabel = r => r === "m" ? mLabel(S.month) : r === "y" ? `Jahr ${S.month.slice(0,4)}` : "Gesamter Zeitraum";
+  const rangeToggle = key => `<div class="seg" role="group" aria-label="Zeitraum">${Object.entries(RANGES).map(([k,l]) => `<button data-range="${key}:${k}" aria-pressed="${(S.range[key]||"m") === k}">${l}</button>`).join("")}</div>`;
+  function wireRanges(){ document.querySelectorAll("[data-range]").forEach(b => b.onclick = () => { const [key, r] = b.dataset.range.split(":"); S.range[key] = r; render(); }); }
+
   function niceStep(raw){ const p = Math.pow(10, Math.floor(Math.log10(raw || 1))); const n = raw / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p; }
   const tipRow = (c, l, v, cls) => `<div class="r"><span>${c ? `<i style="background:${c}"></i>` : ""}${l}</span><b class="${cls||""}">${eur.format(v)}</b></div>`;
   const pctChange = (a, b) => {
@@ -514,13 +598,22 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
     if (S.view === "compare") renderCompare(); else { monthPeriod(); ({overview:renderOverview, income:renderIncome, expenses:renderExpenses})[S.view](); }
   }
   function monthPeriod(){
-    $("#period").innerHTML = `<div class="stepper" role="group" aria-label="Monat wählen"><button id="prev" aria-label="Vorheriger Monat"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button><div class="label">${mLabel(S.month)}</div><button id="next" aria-label="Nächster Monat"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button></div>`
+    // Month dropdown from the earliest data month to 12 months ahead, newest first.
+    const seen = [thisMonth, ...Object.keys(S.eb.paid), ...S.inc.map(x => x.month), ...S.exp.map(x => x.month), ...S.fix.map(c => c.start), ...S.eb.open.map(o => (o.date||"").slice(0,7))].filter(Boolean);
+    let from = seen.reduce((a, b) => a < b ? a : b, addM(thisMonth, -12));
+    if (from > addM(thisMonth, -12)) from = addM(thisMonth, -12);
+    const to = addM(thisMonth, 12), list = [];
+    for (let m = to; m >= from; m = addM(m, -1)) list.push(m);
+    if (!list.includes(S.month)) list.push(S.month);
+    $("#period").innerHTML = `<div class="stepper" role="group" aria-label="Monat wählen"><button id="prev" aria-label="Vorheriger Monat"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button>
+      <select id="mSel" class="msel" aria-label="Monat">${list.map(m => `<option value="${m}" ${m === S.month ? "selected" : ""}>${mLabel(m)}${m === thisMonth ? " · aktuell" : ""}</option>`).join("")}</select>
+      <button id="next" aria-label="Nächster Monat"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button></div>`
       + (S.month !== thisMonth ? `<button class="btn" id="today">Aktueller Monat</button>` : "");
     $("#prev").onclick = () => { S.month = addM(S.month, -1); render(); };
     $("#next").onclick = () => { S.month = addM(S.month, 1); render(); };
+    $("#mSel").onchange = e => { S.month = e.target.value; render(); };
     if ($("#today")) $("#today").onclick = () => { S.month = thisMonth; render(); };
   }
-
   function renderOverview(){
     const ym = S.month, cur = month(ym), prev = month(addM(ym, -1));
     const y = ym.slice(0,4), ytd = yearMonths(y).filter(m => m <= ym).map(month);
@@ -540,7 +633,7 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
       </section>
       <section class="card panel">
         <div class="ph"><div><h2>Einnahmen & Ausgaben · 12 Monate</h2><div class="sub">Klick auf einen Monat öffnet ihn</div></div>
-          <div class="legend"><span><i style="background:var(--s-in)"></i>Einnahmen</span><span><i style="background:var(--s-out)"></i>Ausgaben</span></div></div>
+          <div class="period">${chartToggle()}<div class="legend"><span><i style="background:var(--s-in)"></i>Einnahmen</span><span><i style="background:var(--s-out)"></i>Ausgaben</span></div></div></div>
         <div class="pb"><div class="chart" id="chart"></div></div>
       </section>
       <section class="cols">
@@ -551,7 +644,7 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
       [{name:"Einnahmen", color:"var(--s-in)", values:months.map(m => m.inc)}, {name:"Ausgaben", color:"var(--s-out)", values:months.map(m => m.out)}],
       {selected:11, onPick:i => { S.month = months[i].ym; render(); },
        tip:i => { const m = months[i]; return `<div class="t">${mLabel(m.ym)}</div>${tipRow("var(--s-in)","Einnahmen",m.inc)}${tipRow("var(--s-out)","Ausgaben",m.out)}<div style="border-top:1px solid var(--line);margin-top:5px;padding-top:5px">${tipRow(null,"Ergebnis",m.res,m.res >= 0 ? "pos" : "neg")}</div>`; }});
-    wireGo();
+    wireGo(); wireChartToggle();
   }
   function wireGo(){ document.querySelectorAll("[data-acc]").forEach(b => b.onclick = () => openAccForm(b.dataset.acc)); document.querySelectorAll("[data-go]").forEach(b => b.onclick = () => go(b.dataset.go)); document.querySelectorAll("[data-add]").forEach(b => b.onclick = () => openForm(b.dataset.add)); document.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => openForm(b.dataset.kind, b.dataset.edit)); }
 
@@ -580,56 +673,79 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
   const ICON_PLUS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`;
 
   function renderIncome(){
-    const ym = S.month, m = month(ym), rows = incomeRows(ym);
-    const open = S.eb.open, odSum = sumNet(open.filter(o => o.overdue));
+    const ym = S.month, m = month(ym), r = S.range.inc || "m";
     $("#subtitle").textContent = "Nur tatsächlich bezahlte Rechnungen zählen (netto, nach Zahlungsdatum)";
+    const rows = [
+      ...Object.entries(S.eb.paid).filter(([k]) => inRange(k, r)).flatMap(([, list]) => list.map(x => ({name:x.cust, meta:`Rechnung ${x.no}${x.item ? " · " + x.item : ""}`, no:x.no, cat:x.cat, src:"Easybill", date:x.at, amt:x.net}))),
+      ...S.inc.filter(x => inRange(x.month, r)).map(x => ({name:x.name, meta:x.note || "", no:"", cat:x.category, src:"manuell", date:x.date, amt:Number(x.amount)||0, id:x.id}))
+    ];
+    const open = S.eb.open.map(o => ({...o, status: o.overdue ? "überfällig" : "offen", statusFull: (o.overdue ? "überfällig" : "offen") + (o.partial ? " · Teilzahlung" : "")}));
+    const odSum = sumNet(open.filter(o => o.overdue));
     $("#view").innerHTML = `
       <section class="card panel">
-        <div class="ph"><div><h2>Zahlungseingänge · ${mLabel(ym)}</h2><div class="sub">Summe ${eur2.format(m.inc)}${m.fc > m.inc + .5 ? ` · Prognose inkl. offener Rechnungen ${eur.format(m.fc)}` : ""}</div></div>
-          ${S.writable ? `<button class="btn" data-add="inc">${ICON_PLUS}Einnahme manuell erfassen</button>` : ""}</div>
-        <div class="pb">${rows.length ? `<div class="tbl"><table><thead><tr><th>Kunde</th><th>Quelle</th><th>Datum</th><th class="r">Netto</th><th></th></tr></thead><tbody>${rows.map(r => `
-          <tr><td><b>${esc(r.name)}</b><div class="meta">${esc(r.meta)}</div></td><td>${r.src === "eb" ? `<span class="tag src">Easybill</span>` : `<span class="tag">manuell</span>`}</td><td>${fdate(r.date)}</td><td class="r"><b>${eur2.format(r.amt)}</b></td>
-          <td>${r.src === "man" && S.writable ? `<div class="act"><button class="ibtn" data-kind="inc" data-edit="${r.id}" aria-label="Bearbeiten">${ICON_EDIT}</button></div>` : ""}</td></tr>`).join("")}</tbody>
-          <tfoot><tr><td colspan="3">Summe</td><td class="r">${eur2.format(m.inc)}</td><td></td></tr></tfoot></table></div>`
-          : `<div class="empty">Keine Zahlungseingänge im ${mLabel(ym)}.</div>`}</div>
+        <div class="ph"><div><h2>Zahlungseingänge · ${rangeLabel(r)}</h2><div class="sub">${r === "m" && m.fc > m.inc + .5 ? `Prognose für ${MONTHS[+ym.slice(5)-1]} inkl. offener Rechnungen ${eur.format(m.fc)}` : "Easybill + manuell erfasste Einnahmen"}</div></div>
+          <div class="period">${rangeToggle("inc")}${S.writable ? `<button class="btn" data-add="inc">${ICON_PLUS}Manuell erfassen</button>` : ""}</div></div>
+        <div class="pb">${tableBlock("inc", {rows, defSort:"date", sumKey:"amt", empty:`Keine Zahlungseingänge im Zeitraum.${S.eb.fetchedAt ? "" : " Gleiche links mit Easybill ab."}`,
+          filter:{label:"Kategorie", get:x => x.cat},
+          cols:[
+            {k:"name", label:"Kunde", type:"text", val:x => x.name, html:x => `<b>${esc(x.name)}</b>${x.meta ? `<div class="meta">${esc(x.meta)}</div>` : ""}`},
+            {k:"cat", label:"Kategorie", type:"text", val:x => x.cat, html:x => `<span class="tag">${esc(x.cat)}</span> ${x.src === "Easybill" ? `<span class="tag src">Easybill</span>` : `<span class="tag">manuell</span>`}`},
+            {k:"date", label:"Bezahlt am", type:"date", val:x => x.date, html:x => fdate(x.date)},
+            {k:"amt", label:"Netto", type:"num", r:true, val:x => x.amt, html:x => `<b>${eur2.format(x.amt)}</b>`}],
+          actions:x => x.id && S.writable ? `<div class="act"><button class="ibtn" data-kind="inc" data-edit="${x.id}" aria-label="Bearbeiten">${ICON_EDIT}</button></div>` : ""})}</div>
       </section>
       <section class="card panel">
         <div class="ph"><div><h2>Offene Rechnungen</h2><div class="sub">${open.length} offen · ${eur2.format(sumNet(open))} netto${odSum ? ` · davon ${eur.format(odSum)} überfällig` : ""} · zählen erst als Einnahme, wenn bezahlt</div></div></div>
-        <div class="pb">${!S.eb.fetchedAt ? `<div class="empty">Noch kein Easybill-Abgleich.</div>` : open.length ? `<div class="tbl"><table><thead><tr><th>Kunde</th><th>Rechnung</th><th>Fällig</th><th>Status</th><th class="r">Offen netto</th></tr></thead><tbody>${open.map(o => `
-          <tr><td><b>${esc(o.cust)}</b><div class="meta">${esc(o.item)}</div></td><td>${esc(o.no)}</td><td>${fdate(o.due)}</td>
-          <td>${o.overdue ? `<span class="pill bad">✕ überfällig</span>` : `<span class="pill neutral">offen</span>`}${o.partial ? ` <span class="pill neutral">Teilzahlung</span>` : ""}</td><td class="r"><b>${eur2.format(o.net)}</b></td></tr>`).join("")}</tbody></table></div>`
-          : `<div class="empty">✓ Alle Rechnungen sind bezahlt.</div>`}
+        <div class="pb">${!S.eb.fetchedAt ? `<div class="empty">Noch kein Easybill-Abgleich.</div>` : tableBlock("open", {rows:open, defSort:"date", sumKey:"net", empty:"✓ Alle Rechnungen sind bezahlt.",
+          filter:{label:"Status", get:x => x.status},
+          rowClass:x => x.overdue ? "od" : "",
+          cols:[
+            {k:"cust", label:"Kunde", type:"text", val:x => x.cust, html:x => `<b>${esc(x.cust)}</b><div class="meta">${esc(x.item)}</div>`},
+            {k:"no", label:"Rechnung", type:"text", val:x => x.no},
+            {k:"date", label:"Rechnungsdatum", type:"date", val:x => x.date, html:x => fdate(x.date)},
+            {k:"due", label:"Fällig", type:"date", val:x => x.due, html:x => fdate(x.due)},
+            {k:"status", label:"Status", type:"text", val:x => x.statusFull, html:x => `${x.overdue ? `<span class="pill bad">✕ überfällig</span>` : `<span class="pill neutral">offen</span>`}${x.partial ? ` <span class="pill neutral">Teilzahlung</span>` : ""}`},
+            {k:"net", label:"Offen netto", type:"num", r:true, val:x => x.net, html:x => `<b>${eur2.format(x.net)}</b>`}]})}
           ${S.eb.dupes ? `<p style="font-size:12px;color:var(--warn);margin:12px 0 0">! In Easybill sind ${S.eb.dupes} Zahlungen doppelt verbucht (${eur.format(S.eb.dupeAmt)} netto). Sie werden nicht doppelt gezählt – bitte in Easybill bereinigen.</p>` : ""}</div>
       </section>`;
-    wireGo();
+    wireGo(); wireRanges(); wireTables();
   }
 
   function renderExpenses(){
-    const ym = S.month, m = month(ym);
-    const fixAll = [...S.fix].sort((a,b) => monthlyEq(b) - monthlyEq(a));
+    const ym = S.month, m = month(ym), r = S.range.exp || "m";
     const perMonth = S.fix.filter(c => activeIn(c, ym)).reduce((a,c) => a + monthlyEq(c), 0);
-    const one = S.exp.filter(x => x.month === ym).sort((a,b) => (b.date||"").localeCompare(a.date||""));
+    const fixRows = S.fix.map(c => ({...c, amt:Number(c.amount)||0, pm:monthlyEq(c), iv:INTERVALS[c.interval]?.l || "monatlich", on:activeIn(c, ym), status: c.active === false ? "pausiert" : c.end && c.end < ym ? "beendet" : "aktiv"}));
+    const one = S.exp.filter(x => inRange(x.month, r)).map(x => ({...x, amt:Number(x.amount)||0}));
     $("#subtitle").textContent = `${mLabel(ym)}: ${eur.format(m.out)} gesamt · ${eur.format(m.fix)} Fixkosten · ${eur.format(m.one)} einmalig`;
     $("#view").innerHTML = `
       <section class="card panel">
         <div class="ph"><div><h2>Fixkosten</h2><div class="sub">Laufende Verträge & Abos · im Schnitt ${eur.format(perMonth)} pro Monat · ${eur.format(perMonth * 12)} pro Jahr</div></div>
           ${S.writable ? `<button class="btn primary" data-add="fix">${ICON_PLUS}Fixkosten hinzufügen</button>` : ""}</div>
-        <div class="pb">${fixAll.length ? `<div class="tbl"><table><thead><tr><th>Posten</th><th>Kategorie</th><th>Rhythmus</th><th class="r">Betrag</th><th class="r">pro Monat</th><th></th></tr></thead><tbody>${fixAll.map(c => `
-          <tr class="${activeIn(c, ym) ? "" : "off"}"><td><b>${esc(c.name)}</b><div class="meta">Abbuchung am ${c.day || 1}.${c.end ? ` · gekündigt zum ${mLabel(c.end)}` : ""}${c.active === false ? " · pausiert" : ""}${c.note ? " · " + esc(c.note) : ""}</div></td>
-          <td><span class="tag">${esc(c.category)}</span></td><td>${INTERVALS[c.interval]?.l || "monatlich"}</td><td class="r">${eur2.format(Number(c.amount)||0)}</td><td class="r"><b>${eur2.format(monthlyEq(c))}</b></td>
-          <td>${S.writable ? `<div class="act"><button class="ibtn" data-kind="fix" data-edit="${c.id}" aria-label="Bearbeiten">${ICON_EDIT}</button></div>` : ""}</td></tr>`).join("")}</tbody></table></div>`
-          : `<div class="empty">Noch keine Fixkosten erfasst.<br>Trag hier alles ein, was regelmäßig abgeht: Software, Miete, Versicherungen, Team, Steuerberatung …</div>`}</div>
+        <div class="pb">${tableBlock("fix", {rows:fixRows, defSort:"start", sumKey:"pm", empty:"Noch keine Fixkosten erfasst. Trag hier alles ein, was regelmäßig abgeht: Software, Miete, Versicherungen, Team, Steuerberatung …",
+          filter:{label:"Kategorie", get:x => x.category},
+          rowClass:x => x.on ? "" : "off",
+          cols:[
+            {k:"name", label:"Posten", type:"text", val:x => x.name, html:x => `<b>${esc(x.name)}</b><div class="meta">Abbuchung am ${x.day || 1}. · ${x.status}${x.end ? ` · gekündigt zum ${mLabel(x.end)}` : ""}${x.note ? " · " + esc(x.note) : ""}</div>`},
+            {k:"category", label:"Kategorie", type:"text", val:x => x.category, html:x => `<span class="tag">${esc(x.category)}</span>`},
+            {k:"start", label:"Seit", type:"date", val:x => x.start || "", html:x => x.start ? `${MSHORT[+x.start.slice(5)-1]} ${x.start.slice(0,4)}` : "—"},
+            {k:"iv", label:"Rhythmus", type:"text", val:x => x.iv},
+            {k:"amt", label:"Betrag", type:"num", r:true, val:x => x.amt, html:x => eur2.format(x.amt)},
+            {k:"pm", label:"pro Monat", type:"num", r:true, val:x => x.pm, html:x => `<b>${eur2.format(x.pm)}</b>`}],
+          actions:x => S.writable ? `<div class="act"><button class="ibtn" data-kind="fix" data-edit="${x.id}" aria-label="Bearbeiten">${ICON_EDIT}</button></div>` : ""})}</div>
       </section>
       <section class="card panel">
-        <div class="ph"><div><h2>Einmalige Ausgaben · ${mLabel(ym)}</h2><div class="sub">Ads-Kampagnen, Equipment, Reisen, Freelancer-Rechnungen …</div></div>
-          ${S.writable ? `<button class="btn primary" data-add="exp">${ICON_PLUS}Ausgabe erfassen</button>` : ""}</div>
-        <div class="pb">${one.length ? `<div class="tbl"><table><thead><tr><th>Ausgabe</th><th>Kategorie</th><th>Datum</th><th class="r">Netto</th><th></th></tr></thead><tbody>${one.map(x => `
-          <tr><td><b>${esc(x.name)}</b>${x.note ? `<div class="meta">${esc(x.note)}</div>` : ""}</td><td><span class="tag">${esc(x.category)}</span></td><td>${fdate(x.date)}</td><td class="r"><b>${eur2.format(Number(x.amount)||0)}</b></td>
-          <td>${S.writable ? `<div class="act"><button class="ibtn" data-kind="exp" data-edit="${x.id}" aria-label="Bearbeiten">${ICON_EDIT}</button></div>` : ""}</td></tr>`).join("")}</tbody>
-          <tfoot><tr><td colspan="3">Summe</td><td class="r">${eur2.format(m.one)}</td><td></td></tr></tfoot></table></div>`
-          : `<div class="empty">Keine einmaligen Ausgaben im ${mLabel(ym)}.</div>`}</div>
+        <div class="ph"><div><h2>Einmalige Ausgaben · ${rangeLabel(r)}</h2><div class="sub">Ads-Kampagnen, Equipment, Reisen, Freelancer-Rechnungen …</div></div>
+          <div class="period">${rangeToggle("exp")}${S.writable ? `<button class="btn primary" data-add="exp">${ICON_PLUS}Ausgabe erfassen</button>` : ""}</div></div>
+        <div class="pb">${tableBlock("exp", {rows:one, defSort:"date", sumKey:"amt", empty:"Keine einmaligen Ausgaben im Zeitraum.",
+          filter:{label:"Kategorie", get:x => x.category},
+          cols:[
+            {k:"name", label:"Ausgabe", type:"text", val:x => x.name, html:x => `<b>${esc(x.name)}</b>${x.note ? `<div class="meta">${esc(x.note)}</div>` : ""}`},
+            {k:"category", label:"Kategorie", type:"text", val:x => x.category, html:x => `<span class="tag">${esc(x.category)}</span>`},
+            {k:"date", label:"Datum", type:"date", val:x => x.date, html:x => fdate(x.date)},
+            {k:"amt", label:"Netto", type:"num", r:true, val:x => x.amt, html:x => `<b>${eur2.format(x.amt)}</b>`}],
+          actions:x => S.writable ? `<div class="act"><button class="ibtn" data-kind="exp" data-edit="${x.id}" aria-label="Bearbeiten">${ICON_EDIT}</button></div>` : ""})}</div>
       </section>`;
-    wireGo();
+    wireGo(); wireRanges(); wireTables();
   }
 
   function renderCompare(){
@@ -659,7 +775,7 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
     $("#view").innerHTML = `
       <section class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr))">${card("Einnahmen","inc")}${card("Ausgaben","out",true)}${card("Ergebnis","res")}</section>
       <section class="card panel">
-        <div class="ph"><div><h2>${METRICS[k]} je Monat</h2></div><div class="legend"><span><i style="background:var(--s-out)"></i>${S.yA}</span><span><i style="background:var(--s-in)"></i>${S.yB}</span></div></div>
+        <div class="ph"><div><h2>${METRICS[k]} je Monat</h2></div><div class="period">${chartToggle()}<div class="legend"><span><i style="background:var(--s-out)"></i>${S.yA}</span><span><i style="background:var(--s-in)"></i>${S.yB}</span></div></div></div>
         <div class="pb"><div class="chart" id="chart"></div></div>
       </section>
       <section class="card panel">
@@ -670,7 +786,8 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
           ${S.yA < 2026 || S.yB < 2026 ? `<p style="font-size:12px;color:var(--ink-3);margin:12px 0 0">Hinweis: Easybill-Daten liegen ab Januar 2026 vor. Einnahmen davor nur, wenn sie manuell erfasst sind.</p>` : ""}</div>
       </section>`;
     barChart($("#chart"), MSHORT, [{name:String(S.yA), color:"var(--s-out)", values:A.map(m => m[k])}, {name:String(S.yB), color:"var(--s-in)", values:B.map(m => m[k])}],
-      {tip:i => `<div class="t">${MONTHS[i]}</div>${tipRow("var(--s-out)", String(S.yA), A[i][k])}${tipRow("var(--s-in)", String(S.yB), B[i][k])}`});
+      {selected: S.yB === thisYear ? +thisMonth.slice(5) - 1 : null, tip:i => `<div class="t">${MONTHS[i]}</div>${tipRow("var(--s-out)", String(S.yA), A[i][k])}${tipRow("var(--s-in)", String(S.yB), B[i][k])}`});
+    wireChartToggle();
   }
 
   function go(v){ S.view = v; try { localStorage.setItem("clf.view", v); } catch(e){} render(); window.scrollTo(0,0); }
