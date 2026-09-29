@@ -119,6 +119,8 @@ th[aria-sort="ascending"],th[aria-sort="descending"]{color:var(--ink)}
 th .ar{font-size:11px;opacity:.55}
 th[aria-sort="ascending"] .ar,th[aria-sort="descending"] .ar{opacity:1;color:var(--accent)}
 tr.od td:first-child{box-shadow:inset 2px 0 0 var(--bad)}
+tr.nf td{color:var(--ink-2)}
+tr.nf td:first-child{box-shadow:inset 2px 0 0 var(--warn)}
 .msel{appearance:none;-webkit-appearance:none;background:transparent;border:0;padding:6px;min-width:150px;text-align:center;text-align-last:center;font-weight:600;font-size:13.5px;cursor:pointer;border-radius:8px}
 .msel:hover{background:var(--surface-2)}
 .msel option{background:#111;color:#fff}
@@ -364,7 +366,7 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
     for (const i of snap.invoices){
       if (i.cancel) continue;
       const sign = i.type === "CREDIT" ? -1 : 1;
-      if (i.date) M.invoiced[i.date.slice(0,7)] = (M.invoiced[i.date.slice(0,7)]||0) + sign * i.net / 100;
+      if (i.date && !i.draft) M.invoiced[i.date.slice(0,7)] = (M.invoiced[i.date.slice(0,7)]||0) + sign * i.net / 100;
       const got = applied[i.id] || 0;
       if (i.paidAt && !got){ // marked paid in Easybill without a payment record
         const amt = Math.min(i.paid || i.gross, i.gross);
@@ -376,7 +378,10 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
       if (rest <= 0) continue;
       const ratio = i.gross ? i.net / i.gross : 1;
       const due = i.due || i.date;
-      M.open.push({no:i.no, cust:i.cust, item:i.item, date:i.date, due, net: rest / 100 * ratio, gross: rest / 100, partial: got > 0, overdue: due < today, stale: due < staleBefore, cat: ebCat(i.item||"")});
+      // "final gestellt" = finalized (no draft) and sent to the customer via Easybill. Older snapshots carry no send flag: treat as sent.
+      const final = !i.draft && i.sent !== false;
+      const state = i.draft ? "Entwurf" : !final ? ((i.date || "") > today ? "geplant" : "nicht versendet") : due < today ? "überfällig" : "offen";
+      M.open.push({no:i.no || "Entwurf", cust:i.cust, item:i.item, date:i.date, due, net: rest / 100 * ratio, gross: rest / 100, partial: got > 0, final, state, overdue: final && due < today, stale: final && due < staleBefore, cat: ebCat(i.item||"")});
     }
     M.open.sort((a,b) => (a.due||"").localeCompare(b.due||""));
     const horizon = addM(thisMonth, 24);
@@ -439,15 +444,16 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
     if (!mcp || ebBusy) return;
     ebBusy = true; $("#ebSync").disabled = true; ebStatus("busy", "Easybill · synchronisiere …");
     try {
-      const [invs, credits, recs, pays] = await Promise.all([
+      const [invs, drafts, credits, recs, pays] = await Promise.all([
         ebAll("GetDocuments", {type:"INVOICE", is_draft:"0"}),
+        ebAll("GetDocuments", {type:"INVOICE", is_draft:"1"}),
         ebAll("GetDocuments", {type:"CREDIT", is_draft:"0"}),
         ebAll("GetDocuments", {type:"RECURRING"}),
         ebAll("GetDocumentPayments", {})
       ]);
       const snap = {
         fetchedAt: new Date().toISOString(),
-        invoices: [...invs, ...credits].map(d => ({id:d.id, type:d.type, no:d.number, cust:custOf(d), date:d.document_date, due:d.due_date, gross:d.amount, net:d.amount_net, paid:d.paid_amount, paidAt:d.paid_at, cancel:d.cancel_id, item:itemOf(d)})),
+        invoices: [...invs, ...drafts, ...credits].map(d => ({id:d.id, type:d.type, no:d.number, cust:custOf(d), date:d.document_date, due:d.due_date, gross:d.amount, net:d.amount_net, paid:d.paid_amount, paidAt:d.paid_at, cancel:d.cancel_id, draft:!!d.is_draft, sent:!!d.last_postbox_id, item:itemOf(d)})),
         payments: pays.map(p => ({doc:p.document_id, at:p.payment_at, amt:p.amount, fee:!!p.is_overdue_fee, type:p.type})),
         recurring: recs.map(d => ({id:d.id, cust:custOf(d), gross:d.amount, net:d.amount_net, freq:d.recurring_options?.frequency, interval:d.recurring_options?.interval, next:d.recurring_options?.next_date, end:d.recurring_options?.end_date_or_count, status:d.recurring_options?.status, item:itemOf(d)}))
       };
@@ -617,7 +623,7 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
   function renderOverview(){
     const ym = S.month, cur = month(ym), prev = month(addM(ym, -1));
     const y = ym.slice(0,4), ytd = yearMonths(y).filter(m => m <= ym).map(month);
-    const openSum = sumNet(S.eb.open), od = S.eb.open.filter(o => o.overdue);
+    const openFinal = S.eb.open.filter(o => o.final), openSum = sumNet(openFinal), od = openFinal.filter(o => o.overdue), notYet = sumNet(S.eb.open.filter(o => !o.final));
     $("#subtitle").textContent = "Einnahmen = tatsächlich bezahlt · Ausgaben = tatsächlich fällig";
     const months = Array.from({length:12}, (_,i) => month(addM(ym, i - 11)));
     $("#view").innerHTML = `
@@ -625,7 +631,7 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
         <div class="card kpi"><div class="k"><i style="background:var(--s-in)"></i>Einnahmen</div><div class="v">${eur.format(cur.inc)}</div><div class="s">${pctChange(cur.inc, prev.inc)}<span>ggü. Vormonat</span>${cur.fc > cur.inc + .5 ? `<span class="pill neutral" title="inkl. offener Rechnungen und Abo-Rechnungen">Prognose ${eur.format(cur.fc)}</span>` : ""}</div></div>
         <div class="card kpi"><div class="k"><i style="background:var(--s-out)"></i>Ausgaben</div><div class="v">${eur.format(cur.out)}</div><div class="s">${pctCost(cur.out, prev.out)}<span>ggü. Vormonat</span></div></div>
         <div class="card kpi"><div class="k">Ergebnis</div><div class="v ${cur.res >= 0 ? "pos" : "neg"}">${eur.format(cur.res)}</div><div class="s"><span>Marge ${cur.inc ? Math.round(cur.res / cur.inc * 100) + " %" : "—"}</span></div></div>
-        <div class="card kpi"><div class="k">Offene Rechnungen</div><div class="v">${eur.format(openSum)}</div><div class="s">${od.length ? `<span class="pill bad">✕ ${od.length} überfällig</span>` : S.eb.fetchedAt ? `<span class="pill good">✓ nichts überfällig</span>` : `<span>noch kein Easybill-Abgleich</span>`}</div></div>
+        <div class="card kpi"><div class="k">Offen · gestellt</div><div class="v">${eur.format(openSum)}</div><div class="s">${od.length ? `<span class="pill bad">✕ ${od.length} überfällig</span>` : S.eb.fetchedAt ? `<span class="pill good">✓ nichts überfällig</span>` : `<span>noch kein Easybill-Abgleich</span>`}${notYet > .5 ? `<span>+ ${eur.format(notYet)} noch nicht gestellt</span>` : ""}</div></div>
       </section>
       ${accountsPanel(sumM(ytd,"res"), y)}
       <section class="card panel">
@@ -679,8 +685,8 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
       ...Object.entries(S.eb.paid).filter(([k]) => inRange(k, r)).flatMap(([, list]) => list.map(x => ({name:x.cust, meta:`Rechnung ${x.no}${x.item ? " · " + x.item : ""}`, no:x.no, cat:x.cat, src:"Easybill", date:x.at, amt:x.net}))),
       ...S.inc.filter(x => inRange(x.month, r)).map(x => ({name:x.name, meta:x.note || "", no:"", cat:x.category, src:"manuell", date:x.date, amt:Number(x.amount)||0, id:x.id}))
     ];
-    const open = S.eb.open.map(o => ({...o, status: o.overdue ? "überfällig" : "offen", statusFull: (o.overdue ? "überfällig" : "offen") + (o.partial ? " · Teilzahlung" : "")}));
-    const odSum = sumNet(open.filter(o => o.overdue));
+    const open = S.eb.open.map(o => ({...o, status: o.state, stage: o.final ? "gestellt" : "noch nicht gestellt", statusFull: o.state + (o.partial ? " · Teilzahlung" : "")}));
+    const odSum = sumNet(open.filter(o => o.overdue)), fin = open.filter(o => o.final), notYet = open.filter(o => !o.final);
     $("#view").innerHTML = `
       <section class="card panel">
         <div class="ph"><div><h2>Zahlungseingänge · ${rangeLabel(r)}</h2><div class="sub">${r === "m" && m.fc > m.inc + .5 ? `Prognose für ${MONTHS[+ym.slice(5)-1]} inkl. offener Rechnungen ${eur.format(m.fc)}` : "Easybill + manuell erfasste Einnahmen"}</div></div>
@@ -695,16 +701,17 @@ tr.sep td{padding:14px 10px 6px;font-size:10.5px;text-transform:uppercase;letter
           actions:x => x.id && S.writable ? `<div class="act"><button class="ibtn" data-kind="inc" data-edit="${x.id}" aria-label="Bearbeiten">${ICON_EDIT}</button></div>` : ""})}</div>
       </section>
       <section class="card panel">
-        <div class="ph"><div><h2>Offene Rechnungen</h2><div class="sub">${open.length} offen · ${eur2.format(sumNet(open))} netto${odSum ? ` · davon ${eur.format(odSum)} überfällig` : ""} · zählen erst als Einnahme, wenn bezahlt</div></div></div>
+        <div class="ph"><div><h2>Offene Rechnungen</h2><div class="sub">Gestellt & offen: <b style="color:var(--ink)">${eur2.format(sumNet(fin))}</b> (${fin.length})${odSum ? ` · davon ${eur.format(odSum)} überfällig` : ""}${notYet.length ? ` · noch nicht gestellt: ${eur2.format(sumNet(notYet))} (${notYet.length})` : ""} · zählen erst als Einnahme, wenn bezahlt</div></div></div>
         <div class="pb">${!S.eb.fetchedAt ? `<div class="empty">Noch kein Easybill-Abgleich.</div>` : tableBlock("open", {rows:open, defSort:"date", sumKey:"net", empty:"✓ Alle Rechnungen sind bezahlt.",
           filter:{label:"Status", get:x => x.status},
-          rowClass:x => x.overdue ? "od" : "",
+          rowClass:x => x.overdue ? "od" : x.final ? "" : "nf",
           cols:[
             {k:"cust", label:"Kunde", type:"text", val:x => x.cust, html:x => `<b>${esc(x.cust)}</b><div class="meta">${esc(x.item)}</div>`},
             {k:"no", label:"Rechnung", type:"text", val:x => x.no},
             {k:"date", label:"Rechnungsdatum", type:"date", val:x => x.date, html:x => fdate(x.date)},
             {k:"due", label:"Fällig", type:"date", val:x => x.due, html:x => fdate(x.due)},
-            {k:"status", label:"Status", type:"text", val:x => x.statusFull, html:x => `${x.overdue ? `<span class="pill bad">✕ überfällig</span>` : `<span class="pill neutral">offen</span>`}${x.partial ? ` <span class="pill neutral">Teilzahlung</span>` : ""}`},
+            {k:"stage", label:"Gestellt", type:"text", val:x => x.stage, html:x => x.final ? `<span class="pill good">✓ gestellt</span>` : `<span class="pill warn" title="${x.state === "Entwurf" ? "Entwurf in Easybill" : "noch nicht an den Kunden versendet"}">◷ ${x.state === "geplant" ? "geplant" : x.state === "Entwurf" ? "Entwurf" : "nicht versendet"}</span>`},
+            {k:"status", label:"Status", type:"text", val:x => x.statusFull, html:x => `${x.overdue ? `<span class="pill bad">✕ überfällig</span>` : x.final ? `<span class="pill neutral">offen</span>` : `<span class="pill neutral">–</span>`}${x.partial ? ` <span class="pill neutral">Teilzahlung</span>` : ""}`},
             {k:"net", label:"Offen netto", type:"num", r:true, val:x => x.net, html:x => `<b>${eur2.format(x.net)}</b>`}]})}
           ${S.eb.dupes ? `<p style="font-size:12px;color:var(--warn);margin:12px 0 0">! In Easybill sind ${S.eb.dupes} Zahlungen doppelt verbucht (${eur.format(S.eb.dupeAmt)} netto). Sie werden nicht doppelt gezählt – bitte in Easybill bereinigen.</p>` : ""}</div>
       </section>`;
